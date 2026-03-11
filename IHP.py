@@ -77,26 +77,9 @@ def Get_IHP_Data(service):
     # - Create polars dataframe - #
     hp_df = pl.DataFrame(rows, schema=headers, orient="row")
     key_df = Get_Students_From_Activity_File()
-    #Get_Teacher_Emails(service)
     
     df = Trim_Data(hp_df, key_df)
     return df
-
-# <> Function trim down to only necessary data <> #
-def Trim_Data(result, key_df):
-    # - Select Only Necessary columns - #
-    columns = config.columns
-    result = result.select(columns)
-    # - filter to only show non empty health plan notes - #
-    result = result.filter(pl.any_horizontal(pl.col('Health Plan Notes')!='', pl.col('Active Alerts')!=''))
-    # - Join the keys_df to the result_df via matching student ids - #
-    result = result.join_where(key_df, pl.col('Student Number').cast(pl.String) == pl.col('SIS ID').cast(pl.String))
-    # - Drop columns containing student ID (not relevant) - #
-    result = result.drop(['Student Number', 'SIS ID'])
-    class_lists = result.partition_by('Teacher LN')
-    columns.append('Teacher LN')
-    columns.remove('Student Number')
-    return class_lists
 
 def Get_Students_From_Activity_File():
     # - If testing skip paramiko and return test file df - #
@@ -105,7 +88,7 @@ def Get_Students_From_Activity_File():
          # - Read in csv to pl df - #
         key_df = pl.read_csv(config.test_download_path, separator=',')
         # - Select only necessary columns - #
-        key_df = key_df.select(pl.col('SIS ID'), pl.col('Teacher FN'), pl.col('Teacher LN'))
+        key_df = key_df.select(pl.col('SIS ID'), pl.col('Teacher FN'), pl.col('Teacher LN'), pl.col('CUT Status'), pl.col('Flex Period'))
         return key_df
     print('Running in Production Mode')
     # - Get Flex_Attendance_Full from Securly file server - #
@@ -127,29 +110,48 @@ def Get_Students_From_Activity_File():
     # - Read in csv to pl df - #
     key_df = pl.read_csv(config.download_path, separator=',')
     # - Select only necessary columns - #
-    key_df = key_df.select(pl.col('SIS ID'), pl.col('Teacher FN'), pl.col('Teacher LN'))
+    key_df = key_df.select(pl.col('SIS ID'), pl.col('Teacher FN'), pl.col('Teacher LN'), pl.col('CUT Status'), pl.col('Flex Period'))
     return key_df
+
+# <> Function trim down to only necessary data <> #
+def Trim_Data(result, key_df):
+    # - Select Only Necessary columns - #
+    columns = config.columns
+    result = result.select(columns)
+    # - filter to only show non empty health plan notes - #
+    result = result.filter(pl.any_horizontal(pl.col('Health Plan Notes')!='', pl.col('Active Alerts')!=''))
+    # -  filter to only have students that are not manually excluded and in gator time- #
+    key_df = key_df.filter(pl.any_horizontal(pl.col('CUT Status')!= 'Manually excluded'), pl.col('Flex Period')!='After School Clubs')
+    # - Join the keys_df to the result_df via matching student ids - #
+    result = result.join_where(key_df, pl.col('Student Number').cast(pl.String) == pl.col('SIS ID').cast(pl.String))
+    # - Drop columns containing student ID (not relevant) - #
+    result = result.drop(['Student Number', 'SIS ID'])
+    class_lists = result.partition_by('Teacher LN')
+    columns.append('Teacher LN')
+    columns.remove('Student Number')
+    return class_lists
 
 # <> Use Gmail API for greater security <> #
 def Send_Email(body, teacher_name, teacher_email, email_service):
     try:
         # - Create the email message - #
         message = MIMEMultipart('related')
+        # - Test Mode - #
         if config.test_flag == 'test':
-            message['To'] = config.test_email 
+            message['To'] = config.test_email
+            message['Subject'] = f'[TEST] IHP Reports {teacher_name}'
+        # - Production Mode - #
         elif config.test_flag == 'prod':
             message["To"] = teacher_email
+            message['Subject'] = f'IHP Reports for {teacher_name}'
+            message['Cc'] = config.cc_emails
         
         message['From'] = config.from_email
         
         # - if there was an error with the email gathering, send to myself with changed subject line - #
         if teacher_email == config.error_email:
             message['Subject'] = f'Could not locate teacher_email for {teacher_name}'
-        # - Else just send message as normal - #
-        else:
-            message['Subject'] = f'Gator Time IHP Reports for {teacher_name}'
-            message['Cc'] = config.cc_emails
-            
+                 
         # - Configure it to accept HTML - #
         alt = MIMEMultipart("alternative")
         html_body = MIMEText(body, 'html')
@@ -178,9 +180,7 @@ def Send_Email(body, teacher_name, teacher_email, email_service):
         send_message = None
     print(send_message)
 
-# <> Display names, legal names, and emails are not consistent across systems.
-#  Needed a system to match names to emails for teachers. Ended up landing an already automated
-#  staff list getting pulled for our Apple School Manager instance from Qmlativ (Skyward)<> #
+# <> I am a genius and remembered ASMUpload grabs legal names and emails in a csv from Q every night <> #
 def Get_Teacher_Emails():
     # - read in as df through polars PL - #
     staff_df = pl.read_csv(config.staff_file, separator=',')
@@ -199,8 +199,10 @@ def Build_Email_Template(class_dfs):
     email_service = Get_Service()
     email_list = Get_Teacher_Emails()
     counts = {'total num': 0, 'matched_emails': 0, 'unmatched_emails': 0}
+    teacher_list = []
     # - The total df is split into individual classes. Iterate through those classes - #
     for classroom in class_dfs:
+        print(classroom)
         counts['total num'] += 1
         body = config.body
         # - Combine all columns into a single struct in a new column named 'Students' - #
@@ -213,6 +215,7 @@ def Build_Email_Template(class_dfs):
         teacher_email = next((email.get('email_address') for email in email_list if teacher_name.lower()
                               .strip() == email.get('full_name').lower().strip()), None)
         print(teacher_name, teacher_email)
+        teacher_list.append(teacher_email)
 
         # - Set teacher_email to myself and change subject if teacher_email == None - #
         if teacher_email is None:
@@ -258,6 +261,17 @@ def Build_Email_Template(class_dfs):
         # - send completed table to the Email_List function to be sent via API - #
         Send_Email(body, teacher_name, teacher_email, email_service)
     print(counts)
+    email_string = ','.join(teacher_list)
+    try:
+        with open(config.teacher_email_path, 'w', encoding='utf-8') as csv:
+            csv.write(email_string)
+            print(f'Wrote {len(teacher_list)} emails to teacher_emails.csv')
+    except FileNotFoundError as e:
+        print(f"Could not find teacher_email.csv: {e}")
+    except PermissionError as e:
+        print(f"Could not write to teacher_emails.csv: {e}")
+    except Exception as e:
+        print(f"Could not write teacher_list to teacher_emails.sv: {e}")
 
 # <> Main Calls <> #
 if __name__ == '__main__':
@@ -266,4 +280,3 @@ if __name__ == '__main__':
     # - Send email to teachers - #
     Build_Email_Template(class_dfs)
     print('\nFinished Running Flex_IHP.py\n')
-
