@@ -2,7 +2,6 @@
 # - Config - #
 import config
 # - Built In - #
-import os
 import sys
 from datetime import datetime
 # - Third Party - #
@@ -14,13 +13,8 @@ from apiclient import discovery
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
-from google.oauth2.credentials import Credentials
 import google.oauth2.service_account
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
-from google.auth.transport.requests import Request
 from googleapiclient.errors import HttpError
-
 # <> Logging <> #
 log_file = config.log_file
 sys.stdout = open(config.log_file, 'a')
@@ -28,32 +22,18 @@ sys.stderr = sys.stdin
 cur_time = datetime.now().strftime("%m-%d %H:%M")
 print(f'Starting Flex_IHP at {cur_time}\n')
 
-# <> Generate the necessary authentication for accessing Google Drive using Google API <> #
-def Authenticate():
-    token = config.oauth_token
-    scope = config.oauth_scopes
-    google_creds = config.oauth_creds
-    creds = None
-    if os.path.exists(token):
-        creds = Credentials.from_authorized_user_file(token, scope) #if token.json exists pull credentials from that file to generate creds
-    if not creds or not creds.valid: #if creds were not generated from token, or creds is no longer valid check a few instances of what causes that
-        if creds and creds.expired and creds.refresh_token: #if creds.json exists but is expired refresh the token
-            creds.refresh(Request())
-        else: #if creds is blank token did not have the necessary info from Credentials.json and needs to be generated via below command
-            flow = InstalledAppFlow.from_client_secrets_file(google_creds, scope) #CREDENTIALS is a json file pulled from the project file in Google Cloud Platform
-            creds = flow.run_local_server(port=0) #im not gonna even pretend to fully understand this line :^)
-        with open(token, 'w') as token: #write the newly generated creds to Token.json to speed up this process if call is done wihthin the expiration time
-            token.write(creds.to_json())
-    return creds
-
 # <> Updated oauth2 method of creating service account credentials <> #
-def Get_Service():
+def Get_Service(service):
     try:
         credential = google.oauth2.service_account.Credentials.from_service_account_file(
         config.service_key, scopes=config.service_scopes, subject=config.gmail_delegated_user_email)
     except:
         print(f'Could not generate service credentials')
-    return discovery.build('gmail', 'v1', credentials=credential)
+    if service == 'email':
+        return discovery.build('gmail', 'v1', credentials=credential)
+    elif service == 'sheets':
+        return discovery.build('sheets','v4', credentials=credential)
+
 
 # <> Read the IHP Google Sheet for all values <> #
 def Get_IHP_Data(service):
@@ -196,7 +176,7 @@ def Get_Teacher_Emails():
 # <> Put email for each teacher together before being sent <> #
 def Build_Email_Template(class_dfs):
     # - Generate the Credentials for admin access
-    email_service = Get_Service()
+    email_service = Get_Service('email')
     email_list = Get_Teacher_Emails()
     counts = {'total num': 0, 'matched_emails': 0, 'unmatched_emails': 0}
     teacher_list = []
@@ -275,7 +255,7 @@ def Build_Email_Template(class_dfs):
 
 # <> Main Calls <> #
 if __name__ == '__main__':
-    sheets_service = build('sheets', 'v4', credentials=Authenticate())
+    sheets_service = Get_Service('sheets')
     class_dfs = Get_IHP_Data(sheets_service)
     # - Send email to teachers - #
     Build_Email_Template(class_dfs)

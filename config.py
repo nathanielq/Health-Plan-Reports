@@ -3,7 +3,6 @@
 import keyring
 import os
 # <> Test Flag <> #
-#test_flag = 'test'
 test_flag = 'prod'
 # <> Flex Attendance File <> #
 
@@ -26,15 +25,11 @@ log_file = 'LOG_FILE_PATH'
 
 # <> Google Variables <> #
 # - Google API Scope - #
-oauth_scopes = [
-    'https://www.googleapis.com/auth/spreadsheets',
-    'https://www.googleapis.com/auth/drive.file']
-service_scopes = ['https://www.googleapis.com/auth/gmail.send']
+service_scopes = ['https://www.googleapis.com/auth/gmail.send',
+                  'https://www.googleapis.com/auth/spreadsheets']
 # - Google API Token and Creds file paths - #
 # - Any changes to scope will require deleting creds and then running the auth flow again - #
 # - creds/keys/tokens should be stored in project directory - #
-oauth_token = '\\Flex_IHP\\token.json'
-oauth_creds = '\\Flex_IHP\\credentials.json'
 service_key = '\\Flex_IHP\\service_account_key.json'
 gmail_delegated_user_email = 'EMAIL_TO_SEND_FROM'
 file_id = 'GOOGLE_SHEET_FILE_ID'
