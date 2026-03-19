@@ -16,7 +16,7 @@ trash_service_key = 'SERVICE_KEY_PATH'
 log_file = 'FILE_PATH'
 
 # <> Logging <> #
-sys.stdout = open(log_file,'a')
+sys.stdout = open(log_file,'a', encoding='utf-8')
 sys.stderr = sys.stdout
 today = datetime.today()
 print(f'Starting Clear_Emails at {today}\n')
