@@ -44,8 +44,6 @@ error_email = 'ERROR_EMAIL'
 test_email = 'TEST_EMAIL'
 from_email = 'FROM_EMAIL'
 cc_emails = 'CC_EMAIL_STRING_NOT_A_LIST'
-# - To prevent errors - #
-teacher_name = ''
 # - Start the email template here. Build in the main python after - #
 body = """
     <html lang='en-US'>
@@ -87,3 +85,22 @@ body = """
             </thead>
             <tbody>
             """
+row_template = """ 
+            <tr style={style}>
+                <td style={final_row_1} padding-left: 5px;'>{student_name}</td>
+                <td>{hp_notes}</td>
+                <td style={final_row_2}>{alert}</td>
+            </tr>"""
+
+table_closer = """
+                </tbody>
+                </table>
+                </div>
+            </body>
+        </html>"""
+
+even_row = "'background-color:#f2f2f2; color: #393e46; padding-top: 5px; padding-bottom: 5px;'"
+odd_row = "'background-color: #393e46; color:#f2f2f2; padding-top: 5px; padding-bottom: 5px;'"
+
+final_row_1 = "'border-radius: 0 0 0 10px; padding-left: 5px;"
+final_row_2 = "'border-radius: 0 0 10px 0;'"
